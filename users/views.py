@@ -74,7 +74,7 @@ class ForgotPasswordView(APIView):
         token = token_generator.make_token(user)
         uid = urlsafe_base64_encode(force_bytes(user.pk))
 
-        reset_url = f"http://localhost:3000/reset-password/{uid}/{token}/"  # frontend URL
+        reset_url = f"http://localhost:5173/reset-password/{uid}/{token}"
 
         # Send email (console for now)
         send_mail(
