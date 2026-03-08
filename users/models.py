@@ -1,5 +1,8 @@
 from django.db import models
 from django.contrib.auth.models import User
+import uuid
+from django.utils import timezone
+from datetime import timedelta
 
 # pylint: disable=no-member
 
@@ -21,6 +24,27 @@ class Profile(models.Model):
 
     def __str__(self):
         return f"{self.user.username} ({self.role})"
+
+class EmailVerification(models.Model):
+    """Model to handle email verification for user registration"""
+    email = models.EmailField()
+    verification_code = models.CharField(max_length=6)  # 6-digit code instead of UUID
+    user_data = models.JSONField()  # Store registration data temporarily
+    role = models.CharField(max_length=20, choices=[('customer', 'Customer'), ('seller', 'Seller')])
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    is_verified = models.BooleanField(default=False)
+    
+    def save(self, *args, **kwargs):
+        if not self.expires_at:
+            self.expires_at = timezone.now() + timedelta(minutes=15)  # 15 minute expiry
+        super().save(*args, **kwargs)
+    
+    def is_expired(self):
+        return timezone.now() > self.expires_at
+    
+    def __str__(self):
+        return f"Email verification for {self.email} ({self.role})"
     
 class CustomerProfile(models.Model):
    
@@ -36,6 +60,8 @@ class CustomerProfile(models.Model):
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
     email = models.EmailField()
+    address = models.TextField(blank=True, null=True, help_text="Full shipping address")
+    green_points = models.IntegerField(default=0, help_text="Green Points balance for eco-friendly purchases")
    
 
     def save_from_user(self):
@@ -68,11 +94,14 @@ class SellerProfile(models.Model):
     last_name = models.CharField(max_length=100)
     email = models.EmailField()
     shop_name = models.CharField(max_length=100)
+    address = models.TextField(blank=True, null=True, help_text="Full shipping address")
+    is_validated = models.BooleanField(default=False, help_text="Admin verification for seller authenticity and documents")
+    validation_date = models.DateTimeField(null=True, blank=True)
    
 
     def save_from_user(self):
         """
-        Populate this CustomerProfile from the linked User instance.
+        Populate this SellerProfile from the linked User instance.
         """
         self.first_name = self.user.first_name
         self.last_name = self.user.last_name
@@ -84,7 +113,7 @@ class SellerProfile(models.Model):
         self.save()
 
     def __str__(self):
-        return f"Customer: {self.user.username}"
+        return f"Seller: {self.user.username} - {'✓ Verified' if self.is_validated else '⏳ Pending'}"
 
 
 
@@ -130,3 +159,26 @@ class SellerOnboarding(models.Model):
 
     def __str__(self):
         return self.user.username   # ✅ shows username instead of object id
+
+
+class GreenPointsTransaction(models.Model):
+    """Track all green points transactions for customers"""
+    TRANSACTION_TYPES = (
+        ('earned', 'Points Earned'),
+        ('redeemed', 'Points Redeemed'),
+    )
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='green_points_transactions')
+    points = models.IntegerField(help_text="Positive for earned, negative for redeemed")
+    transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES)
+    order = models.ForeignKey('orders.Order', on_delete=models.SET_NULL, null=True, blank=True, related_name='points_transactions')
+    description = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "Green Points Transaction"
+        verbose_name_plural = "Green Points Transactions"
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.transaction_type} - {self.points} points"

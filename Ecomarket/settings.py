@@ -65,6 +65,27 @@ ROOT_URLCONF = 'Ecomarket.urls'
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
+    "http://localhost:5174",  # Added for your current port
+]
+
+# For development, you can also use this (less secure but more flexible):
+CORS_ALLOW_ALL_ORIGINS = True  # Only for development
+
+CORS_ALLOW_CREDENTIALS = True
+
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    "Authorization",
+    "Content-Type",
+    "Accept",
+]
+
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
 ]
 
 TEMPLATES = [
@@ -115,9 +136,9 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-# For console testing
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-DEFAULT_FROM_EMAIL = ''
+# For console testing (removed duplicate)
+# EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+# DEFAULT_FROM_EMAIL = ''
 
 
 
@@ -153,20 +174,78 @@ REST_FRAMEWORK = {
     )
 }
 
+# JWT Settings
+from datetime import timedelta
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),  # Extended from default 5 minutes
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),  # 7 days
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'UPDATE_LAST_LOGIN': True,
+    
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': SECRET_KEY,
+    'VERIFYING_KEY': None,
+    'AUDIENCE': None,
+    'ISSUER': None,
+    'JWK_URL': None,
+    'LEEWAY': 0,
+    
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id',
+    'USER_AUTHENTICATION_RULE': 'rest_framework_simplejwt.authentication.default_user_authentication_rule',
+    
+    'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
+    'TOKEN_TYPE_CLAIM': 'token_type',
+    'TOKEN_USER_CLASS': 'rest_framework_simplejwt.models.TokenUser',
+    
+    'JTI_CLAIM': 'jti',
+    
+    'SLIDING_TOKEN_REFRESH_EXP_CLAIM': 'refresh_exp',
+    'SLIDING_TOKEN_LIFETIME': timedelta(minutes=5),
+    'SLIDING_TOKEN_REFRESH_LIFETIME': timedelta(days=1),
+}
+
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 
 
 
-CORS_ALLOW_HEADERS = list(default_headers) + [
-    "Authorization",
-]
+# CORS configuration moved above
 
+# Email Configuration for Development with Gmail
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_PASSWORD = 'ssdy ixkx eeev bcqt' # your generated App Password
 EMAIL_HOST_USER = 'asmitpradhan321@gmail.com'    # sender address
+EMAIL_HOST_PASSWORD = 'ssdy ixkx eeev bcqt' # your generated App Password
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+
+# For console testing (disabled)
+# EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+# DEFAULT_FROM_EMAIL = 'noreply@ecomarket.com'
+
+
+# eSewa Payment Gateway Configuration
+# Test/Sandbox credentials
+ESEWA_MERCHANT_ID = 'EPAYTEST'
+ESEWA_SECRET_KEY = '8gBm/:&EnhH.1/q'
+ESEWA_PAYMENT_URL = 'https://rc-epay.esewa.com.np/api/epay/main/v2/form'
+ESEWA_VERIFY_URL = 'https://rc-epay.esewa.com.np/api/epay/transaction/status/'
+
+# For production, use:
+# ESEWA_PAYMENT_URL = 'https://epay.esewa.com.np/api/epay/main/v2/form'
+# ESEWA_VERIFY_URL = 'https://epay.esewa.com.np/api/epay/transaction/status/'
+# And replace with your actual merchant credentials
+
+
+# Green Points Reward System Configuration
+GREEN_POINTS_EARN_RATE = 10  # 1 point per Rs 10 spent
+GREEN_POINTS_REDEEM_RATE = 10  # 10 points = Rs 1 discount
+GREEN_POINTS_MIN_REDEEM = 50  # Minimum 50 points to redeem
+GREEN_POINTS_MAX_DISCOUNT_PERCENT = 50  # Maximum 50% discount from points

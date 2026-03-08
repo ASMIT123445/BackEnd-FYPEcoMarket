@@ -12,15 +12,17 @@ from django.conf import settings
 class RegisterSerializer(serializers.ModelSerializer):
     password2 = serializers.CharField(write_only=True)
     role = serializers.CharField(write_only=True)
+    address = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = User
-        fields = ['username', 'first_name', 'last_name', 'email', 'password', 'password2', 'role']
+        fields = ['username', 'first_name', 'last_name', 'email', 'password', 'password2', 'role', 'address']
 
     def create(self, validated_data):
         # Remove fields that User model does not accept
         password2 = validated_data.pop('password2', None)
         role = validated_data.pop('role', 'customer')
+        address = validated_data.pop('address', '')
         
 
         # Create user
@@ -31,14 +33,6 @@ class RegisterSerializer(serializers.ModelSerializer):
             first_name=validated_data.get('first_name', ''),
             last_name=validated_data.get('last_name', '')
         )
-
-        # Set extra fields if they exist on User model
-        if hasattr(user, 'role'):
-            user.role = role
-        if hasattr(user, 'shop_name'):
-            user.shop_name = shop_name
-        if hasattr(user, 'phone'):
-            user.phone = phone
 
         user.save()
 
@@ -51,16 +45,8 @@ class RegisterSerializer(serializers.ModelSerializer):
                 first_name=user.first_name,
                 last_name=user.last_name,
                 email=user.email,
-                role=role
-            )
-
-            # Send email to customer
-            send_mail(
-                subject="Welcome to EcoMarket!",
-                message=f"Hi {user.first_name},\n\nThank you for registering as a Customer on EcoMarket!",
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email],
-                fail_silently=False
+                role=role,
+                address=address
             )
 
         # Create SellerProfile if role is seller
@@ -72,16 +58,8 @@ class RegisterSerializer(serializers.ModelSerializer):
                 last_name=user.last_name,
                 email=user.email,
                 role=role,
-                shop_name=getattr(user, 'shop_name', '')
-            )
-
-            # Send email to seller
-            send_mail(
-                subject="Welcome to EcoMarket!",
-                message=f"Hi {user.first_name},\n\nThank you for registering as a Seller on EcoMarket!",
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email],
-                fail_silently=False
+                shop_name='',  # Can be filled later in seller onboarding
+                address=address
             )
 
         return user
@@ -92,13 +70,90 @@ class RegisterSerializer(serializers.ModelSerializer):
 # Profile Serializer for GET
 # ---------------------------
 class ProfileSerializer(serializers.ModelSerializer):
-    role = serializers.CharField(source='profile.role')
-    shop_name = serializers.CharField(source='profile.shop_name')
-    phone = serializers.CharField(source='profile.phone')
+    role = serializers.SerializerMethodField()
+    shop_name = serializers.SerializerMethodField()
+    phone = serializers.SerializerMethodField()
+    address = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['username', 'email', 'role', 'shop_name', 'phone']
+        fields = ['id', 'username', 'first_name', 'last_name', 'email', 'role', 'shop_name', 'phone', 'address']
+
+    def get_role(self, obj):
+        # Try to get role from different profile models using try-except
+        try:
+            if obj.seller_user:
+                return obj.seller_user.role
+        except:
+            pass
+        
+        try:
+            if obj.customer_user:
+                return obj.customer_user.role
+        except:
+            pass
+        
+        try:
+            if obj.profile:
+                return obj.profile.role
+        except:
+            pass
+        
+        return 'customer'  # default
+
+    def get_shop_name(self, obj):
+        # Try to get shop_name from seller profile
+        try:
+            if obj.seller_user:
+                return obj.seller_user.shop_name
+        except:
+            pass
+        
+        try:
+            if obj.profile:
+                return getattr(obj.profile, 'shop_name', '')
+        except:
+            pass
+        
+        return ''
+
+    def get_phone(self, obj):
+        # Try to get phone from profile models
+        try:
+            if obj.seller_user:
+                return getattr(obj.seller_user, 'phone', '')
+        except:
+            pass
+        
+        try:
+            if obj.customer_user:
+                return getattr(obj.customer_user, 'phone', '')
+        except:
+            pass
+        
+        try:
+            if obj.profile:
+                return getattr(obj.profile, 'phone', '')
+        except:
+            pass
+        
+        return ''
+    
+    def get_address(self, obj):
+        # Try to get address from profile models using try-except for safety
+        try:
+            if obj.seller_user and obj.seller_user.address:
+                return obj.seller_user.address
+        except:
+            pass
+        
+        try:
+            if obj.customer_user and obj.customer_user.address:
+                return obj.customer_user.address
+        except:
+            pass
+        
+        return ''
 
 
 # ---------------------------
@@ -124,3 +179,12 @@ class SellerOnboardingSerializer(serializers.ModelSerializer):
         onboarding_instance.user = user
         onboarding_instance.save()
         return onboarding_instance
+
+
+from .models import GreenPointsTransaction
+
+class GreenPointsTransactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GreenPointsTransaction
+        fields = ['id', 'points', 'transaction_type', 'description', 'created_at']
+        read_only_fields = ['id', 'created_at']
