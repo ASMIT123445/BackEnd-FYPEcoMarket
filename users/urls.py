@@ -17,3 +17,4 @@ urlpatterns = [
     path('green-points/history/', GreenPointsHistoryView.as_view(), name='green-points-history'),
 ]
 
+

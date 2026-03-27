@@ -486,6 +486,7 @@ class SellerOnboardingView(APIView):
         print(request.auth)
 
 
+
         if serializer.is_valid():
             # Save with user explicitly to avoid IntegrityError
             serializer.save(user=user)
