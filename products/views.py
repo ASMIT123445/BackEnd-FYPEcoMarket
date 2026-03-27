@@ -14,6 +14,7 @@ class ProductListCreateView(APIView):
             return [AllowAny()]
         return [IsAuthenticated()]
     
+    
     def get(self, request):
         """Get all products with optional category filtering"""
         products = Product.objects.all().order_by('-id')  # Latest first
