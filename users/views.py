@@ -423,6 +423,7 @@ class ResetPasswordView(APIView):
         if password != password2:
             return Response({"error": "Passwords must match"}, status=400)
 
+
         try:
             user_id = force_str(urlsafe_base64_decode(uid))
             user = User.objects.get(pk=user_id)

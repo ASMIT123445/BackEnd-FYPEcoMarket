@@ -4,7 +4,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
-from .models import Cart, CartItem, Order, OrderItem
+from .models import Cart, CartItem, Order, OrderItem, OrderStatusHistory
 from .serializers import CartSerializer, CartItemSerializer, OrderSerializer
 from products.models import Product
 from users.green_points_utils import calculate_points_earned, award_points
@@ -536,6 +536,9 @@ def create_cod_order(request):
         # Clear cart after order creation
         cart.items.all().delete()
         
+        # Log initial status history
+        OrderStatusHistory.objects.create(order=order, status='confirmed', note='Order placed via Cash on Delivery')
+        
         # Return order details
         serializer = OrderSerializer(order)
         return Response({
@@ -548,3 +551,68 @@ def create_cod_order(request):
         return Response({'error': 'Cart not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def track_order(request, order_id):
+    """Get order tracking details with full status history"""
+    try:
+        order = Order.objects.get(id=order_id, user=request.user)
+    except Order.DoesNotExist:
+        return Response({'error': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    history = order.status_history.all().values('status', 'note', 'changed_at')
+
+    return Response({
+        'order_id': order.id,
+        'current_status': order.status,
+        'payment_method': order.payment_method,
+        'payment_status': order.payment_status,
+        'total_amount': order.total_amount,
+        'shipping_address': order.shipping_address,
+        'created_at': order.created_at,
+        'updated_at': order.updated_at,
+        'status_history': list(history),
+    })
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def update_order_status(request, order_id):
+    """Seller updates order status — logs to history"""
+    try:
+        order = Order.objects.get(id=order_id)
+    except Order.DoesNotExist:
+        return Response({'error': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    # Allow if seller owns at least one product in the order, or is staff
+    seller_ids = list(order.items.values_list('product__seller_id', flat=True))
+    if not request.user.is_staff and request.user.id not in seller_ids:
+        return Response({'error': 'Not authorized'}, status=status.HTTP_403_FORBIDDEN)
+
+    new_status = request.data.get('status')
+    note = request.data.get('note', '')
+
+    valid_statuses = [s[0] for s in Order.STATUS_CHOICES]
+    if new_status not in valid_statuses:
+        return Response({'error': f'Invalid status. Choose from: {valid_statuses}'}, status=status.HTTP_400_BAD_REQUEST)
+
+    order.status = new_status
+    order.save()
+
+    OrderStatusHistory.objects.create(order=order, status=new_status, note=note)
+
+    return Response({'message': f'Order status updated to {new_status}', 'order_id': order.id, 'status': new_status})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_seller_orders(request):
+    """Get all orders that contain the seller's products"""
+    from django.db.models import Q
+    orders = Order.objects.filter(
+        items__product__seller=request.user
+    ).distinct().order_by('-created_at')
+    serializer = OrderSerializer(orders, many=True, context={'request': request})
+    return Response(serializer.data)

@@ -244,6 +244,7 @@ ESEWA_VERIFY_URL = 'https://rc-epay.esewa.com.np/api/epay/transaction/status/'
 # And replace with your actual merchant credentials
 
 
+
 # Green Points Reward System Configuration
 GREEN_POINTS_EARN_RATE = 10  # 1 point per Rs 10 spent
 GREEN_POINTS_REDEEM_RATE = 10  # 10 points = Rs 1 discount

@@ -92,3 +92,16 @@ class OrderItem(models.Model):
     @property
     def total_price(self):
         return self.quantity * self.price
+
+
+class OrderStatusHistory(models.Model):
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='status_history')
+    status = models.CharField(max_length=20, choices=Order.STATUS_CHOICES)
+    note = models.CharField(max_length=255, blank=True, default='')
+    changed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['changed_at']
+
+    def __str__(self):
+        return f"Order #{self.order.id} → {self.status} at {self.changed_at}"

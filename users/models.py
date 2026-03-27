@@ -62,7 +62,8 @@ class CustomerProfile(models.Model):
     email = models.EmailField()
     address = models.TextField(blank=True, null=True, help_text="Full shipping address")
     green_points = models.IntegerField(default=0, help_text="Green Points balance for eco-friendly purchases")
-   
+
+
 
     def save_from_user(self):
         """
@@ -114,6 +115,7 @@ class SellerProfile(models.Model):
 
     def __str__(self):
         return f"Seller: {self.user.username} - {'✓ Verified' if self.is_validated else '⏳ Pending'}"
+
 
 
 

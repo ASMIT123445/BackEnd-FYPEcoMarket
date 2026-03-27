@@ -16,4 +16,9 @@ urlpatterns = [
     path('orders/esewa/verify/', views.esewa_payment_verify, name='esewa_payment_verify'),
     path('orders/esewa/failure/', views.esewa_payment_failure, name='esewa_payment_failure'),
     path('orders/cod/create/', views.create_cod_order, name='create_cod_order'),
+
+    # Order Tracking
+    path('orders/seller/orders/', views.get_seller_orders, name='get_seller_orders'),
+    path('orders/<int:order_id>/track/', views.track_order, name='track_order'),
+    path('orders/<int:order_id>/status/', views.update_order_status, name='update_order_status'),
 ]
