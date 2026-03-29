@@ -30,12 +30,19 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
+    customer_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
         fields = [
-            'id', 'status', 'total_amount', 'items', 
+            'id', 'customer_name', 'status', 'total_amount', 'items', 
             'payment_method', 'payment_status', 'transaction_id', 'esewa_ref_id',
             'shipping_address', 'phone_number',
             'created_at', 'updated_at'
         ]
+
+    def get_customer_name(self, obj):
+        user = obj.user
+        if user.first_name and user.last_name:
+            return f"{user.first_name} {user.last_name}"
+        return user.username

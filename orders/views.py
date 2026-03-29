@@ -456,12 +456,14 @@ def esewa_payment_failure(request):
         data = request.GET if request.method == 'GET' else request.data
         transaction_uuid = data.get('refId') or data.get('transaction_uuid')
         
+        order_id = None
         if transaction_uuid:
             try:
                 order = Order.objects.get(transaction_id=transaction_uuid)
                 order.payment_status = 'failed'
                 order.status = 'cancelled'
                 order.save()
+                order_id = order.id
                 
                 # Restore stock
                 for item in order.items.all():
@@ -473,11 +475,9 @@ def esewa_payment_failure(request):
                 pass
         
         # Redirect to failure page
-        frontend_url = "http://localhost:5173/order-confirmation?status=failed"
-        return Response({
-            'message': 'Payment cancelled or failed',
-            'redirect_url': frontend_url
-        })
+        frontend_url = f"http://localhost:5173/order-confirmation?order_id={order_id or ''}&status=failed"
+        from django.http import HttpResponseRedirect
+        return HttpResponseRedirect(frontend_url)
         
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -510,7 +510,7 @@ def create_cod_order(request):
             total_amount=total_amount,
             status='confirmed',
             payment_method='cod',
-            payment_status='pending',
+            payment_status='cash_payment',
             shipping_address=shipping_address,
             phone_number=phone_number,
             points_earned=points_to_earn
@@ -580,7 +580,7 @@ def track_order(request, order_id):
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
 def update_order_status(request, order_id):
-    """Seller updates order status — logs to history"""
+    """Seller updates order status — logs to history and emails customer"""
     try:
         order = Order.objects.get(id=order_id)
     except Order.DoesNotExist:
@@ -603,6 +603,51 @@ def update_order_status(request, order_id):
 
     OrderStatusHistory.objects.create(order=order, status=new_status, note=note)
 
+    # Send email notification to customer
+    try:
+        from django.core.mail import send_mail
+        from django.conf import settings as django_settings
+
+        status_labels = {
+            'pending': 'Pending',
+            'confirmed': 'Confirmed',
+            'processing': 'Processing',
+            'shipped': 'Shipped',
+            'delivered': 'Delivered',
+            'cancelled': 'Cancelled',
+        }
+        status_label = status_labels.get(new_status, new_status.capitalize())
+
+        customer_email = order.user.email
+        customer_name = order.user.first_name or order.user.username
+
+        subject = f"Ecomarket - Order #{order.id} Status Update: {status_label}"
+
+        message = f"""Hi {customer_name},
+
+Your order #{order.id} has been updated.
+
+New Status: {status_label}
+Order Total: Rs {order.total_amount}
+{f'Note: {note}' if note else ''}
+
+You can track your order at: http://localhost:5173/order-tracking/{order.id}
+
+Thank you for shopping with Ecomarket!
+
+— The Ecomarket Team
+"""
+
+        send_mail(
+            subject=subject,
+            message=message,
+            from_email=django_settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[customer_email],
+            fail_silently=True,
+        )
+    except Exception as e:
+        print(f"Email notification failed: {e}")
+
     return Response({'message': f'Order status updated to {new_status}', 'order_id': order.id, 'status': new_status})
 
 
@@ -616,3 +661,36 @@ def get_seller_orders(request):
     ).distinct().order_by('-created_at')
     serializer = OrderSerializer(orders, many=True, context={'request': request})
     return Response(serializer.data)
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def update_payment_status(request, order_id):
+    """Seller/admin updates payment status of an order"""
+    try:
+        order = Order.objects.get(id=order_id)
+    except Order.DoesNotExist:
+        return Response({'error': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    # Allow if seller owns at least one product in the order, or is staff
+    seller_ids = list(order.items.values_list('product__seller_id', flat=True))
+    if not request.user.is_staff and request.user.id not in seller_ids:
+        return Response({'error': 'Not authorized'}, status=status.HTTP_403_FORBIDDEN)
+
+    new_payment_status = request.data.get('payment_status')
+    valid_payment_statuses = [s[0] for s in Order.PAYMENT_STATUS_CHOICES]
+
+    if new_payment_status not in valid_payment_statuses:
+        return Response(
+            {'error': f'Invalid payment status. Choose from: {valid_payment_statuses}'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    order.payment_status = new_payment_status
+    order.save()
+
+    return Response({
+        'message': f'Payment status updated to {new_payment_status}',
+        'order_id': order.id,
+        'payment_status': new_payment_status
+    })
