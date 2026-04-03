@@ -19,6 +19,12 @@ class ProductListCreateView(APIView):
         """Get all products with optional category filtering"""
         products = Product.objects.all().order_by('-id')  # Latest first
         
+        # Only show verified products to public (non-sellers, non-admins)
+        user = request.user
+        is_seller = user.is_authenticated and hasattr(user, 'seller_user')
+        if not user.is_authenticated or (not user.is_staff and not is_seller):
+            products = products.filter(is_validated=True)
+        
         # Filter by category if provided (supports both eco_category slug and legacy category)
         category = request.query_params.get('category')
         if category:
@@ -74,12 +80,21 @@ class ProductListCreateView(APIView):
         
         print(f"Final user role: {user_role}")
         
-        # Temporarily allow both customers and sellers to add products for testing
-        # if user_role != 'seller':
-        #     return Response({
-        #         "error": f"Only sellers can add products. Current role: {user_role}"
-        #     }, status=status.HTTP_403_FORBIDDEN)
-        
+        # Check if user is a seller and is verified
+        if hasattr(user, 'seller_user'):
+            if not user.seller_user.is_validated:
+                return Response({
+                    "error": "Your seller account is not yet verified by admin. You cannot add products until verified."
+                }, status=status.HTTP_403_FORBIDDEN)
+        elif hasattr(user, 'customer_user'):
+            return Response({
+                "error": "Only verified sellers can add products."
+            }, status=status.HTTP_403_FORBIDDEN)
+        else:
+            return Response({
+                "error": "Only verified sellers can add products."
+            }, status=status.HTTP_403_FORBIDDEN)
+
         # Create a mutable copy of request data
         data = request.data.copy()
         print(f"Request data: {data}")

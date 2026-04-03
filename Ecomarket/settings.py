@@ -47,7 +47,8 @@ INSTALLED_APPS = [
     # Your apps
     'users',
     'products',
-    'orders'
+    'orders',
+    'chat'
 ]
 
 MIDDLEWARE = [

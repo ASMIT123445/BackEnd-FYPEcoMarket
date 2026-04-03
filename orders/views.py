@@ -651,6 +651,35 @@ Thank you for shopping with Ecomarket!
     return Response({'message': f'Order status updated to {new_status}', 'order_id': order.id, 'status': new_status})
 
 
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def cancel_order(request, order_id):
+    """Customer cancels their own order if it's still pending or confirmed"""
+    try:
+        order = Order.objects.get(id=order_id, user=request.user)
+    except Order.DoesNotExist:
+        return Response({'error': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if order.status not in ('pending', 'confirmed'):
+        return Response(
+            {'error': f'Cannot cancel an order that is already "{order.status}".'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    order.status = 'cancelled'
+    order.save()
+
+    # Restore stock
+    for item in order.items.all():
+        product = item.product
+        product.stock += item.quantity
+        product.save()
+
+    OrderStatusHistory.objects.create(order=order, status='cancelled', note='Cancelled by customer')
+
+    return Response({'message': 'Order cancelled successfully', 'order_id': order.id})
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_seller_orders(request):

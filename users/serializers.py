@@ -74,10 +74,11 @@ class ProfileSerializer(serializers.ModelSerializer):
     shop_name = serializers.SerializerMethodField()
     phone = serializers.SerializerMethodField()
     address = serializers.SerializerMethodField()
+    is_verified = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'first_name', 'last_name', 'email', 'role', 'shop_name', 'phone', 'address']
+        fields = ['id', 'username', 'first_name', 'last_name', 'email', 'role', 'shop_name', 'phone', 'address', 'is_verified']
 
     def get_role(self, obj):
         # Try to get role from different profile models using try-except
@@ -139,6 +140,14 @@ class ProfileSerializer(serializers.ModelSerializer):
         
         return ''
     
+    def get_is_verified(self, obj):
+        try:
+            if obj.seller_user:
+                return obj.seller_user.is_validated
+        except:
+            pass
+        return None  # None means not a seller
+
     def get_address(self, obj):
         # Try to get address from profile models using try-except for safety
         try:

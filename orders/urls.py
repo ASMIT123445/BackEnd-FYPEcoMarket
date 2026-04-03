@@ -18,6 +18,7 @@ urlpatterns = [
     path('orders/cod/create/', views.create_cod_order, name='create_cod_order'),
 
     # Order Tracking
+    path('orders/<int:order_id>/cancel/', views.cancel_order, name='cancel_order'),
     path('orders/seller/orders/', views.get_seller_orders, name='get_seller_orders'),
     path('orders/<int:order_id>/track/', views.track_order, name='track_order'),
     path('orders/<int:order_id>/status/', views.update_order_status, name='update_order_status'),
