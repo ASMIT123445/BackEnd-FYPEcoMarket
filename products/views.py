@@ -38,13 +38,10 @@ class ProductListCreateView(APIView):
         if product_category:
             products = products.filter(product_category__slug=product_category)
         
-        # Filter by search query if provided
+        # Filter by search query — product name only
         search = request.query_params.get('search')
         if search:
-            from django.db.models import Q
-            products = products.filter(
-                Q(name__icontains=search) | Q(description__icontains=search)
-            )
+            products = products.filter(name__icontains=search)
         
         # Filter by price range if provided
         min_price = request.query_params.get('min_price')
@@ -522,3 +519,46 @@ class UserProductRatingView(APIView):
                 {"rating": None}, 
                 status=status.HTTP_200_OK
             )
+
+
+class SearchSuggestionsView(APIView):
+    """
+    Returns product name suggestions for the search autocomplete dropdown.
+    - If a query is provided: returns up to 8 matching validated products ordered by rating desc.
+    - If no query: returns the 8 most recent validated products (shown as "Popular Products").
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        query = request.query_params.get('q', '').strip()
+
+        if query:
+            products = (
+                Product.objects
+                .filter(name__icontains=query, is_validated=True)
+                .order_by('-rating', '-id')
+                .values('id', 'name', 'image', 'price', 'rating')[:8]
+            )
+        else:
+            # No query — show all validated products, newest first (no rating filter)
+            products = (
+                Product.objects
+                .filter(is_validated=True)
+                .order_by('-rating', '-id')
+                .values('id', 'name', 'image', 'price', 'rating')[:8]
+            )
+
+        results = []
+        for p in products:
+            image_url = None
+            if p['image']:
+                image_url = request.build_absolute_uri(f"/media/{p['image']}")
+            results.append({
+                'id': p['id'],
+                'name': p['name'],
+                'price': str(p['price']),
+                'rating': p['rating'],
+                'image': image_url,
+            })
+
+        return Response({'suggestions': results})

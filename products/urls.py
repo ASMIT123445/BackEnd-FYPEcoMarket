@@ -3,13 +3,14 @@ from .views import (
     ProductListCreateView, ProductDetailView, TestAuthView, CategoryListView, 
     SellerProductsView, EcoCategoryManagementView, EcoCategoryDetailView,
     ProductCategoryListView, ProductCategoryManagementView, ProductCategoryDetailView,
-    ProductRatingView, UserProductRatingView
+    ProductRatingView, UserProductRatingView, SearchSuggestionsView
 )
 
 urlpatterns = [
     path('', ProductListCreateView.as_view(), name='product-list-create'),
     path('<int:pk>/', ProductDetailView.as_view(), name='product-detail'),
     path('categories/', CategoryListView.as_view(), name='category-list'),
+    path('suggestions/', SearchSuggestionsView.as_view(), name='search-suggestions'),
     path('eco-categories/', EcoCategoryManagementView.as_view(), name='eco-category-management'),
     path('eco-categories/<int:pk>/', EcoCategoryDetailView.as_view(), name='eco-category-detail'),
     path('product-categories/', ProductCategoryListView.as_view(), name='product-category-list'),

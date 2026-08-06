@@ -16,6 +16,7 @@ urlpatterns = [
     path('api/products/', include('products.urls')),  # products endpoints
     path('api/', include('orders.urls')),  # cart and orders endpoints
     path('api/', include('chat.urls')),    # chat endpoints
+    path('api/admin-panel/', include('adminpanel.urls')),  # custom admin endpoints
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),  # JWT refresh
 ]
 

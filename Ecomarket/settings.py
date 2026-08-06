@@ -239,6 +239,12 @@ ESEWA_SECRET_KEY = '8gBm/:&EnhH.1/q'
 ESEWA_PAYMENT_URL = 'https://rc-epay.esewa.com.np/api/epay/main/v2/form'
 ESEWA_VERIFY_URL = 'https://rc-epay.esewa.com.np/api/epay/transaction/status/'
 
+# Khalti Payment Gateway Configuration
+# Sandbox secret key — replace with your own from test-admin.khalti.com
+KHALTI_SECRET_KEY = 'live_secret_key_68791341fdd94846a146f0457ff7b455'
+KHALTI_INITIATE_URL = 'https://dev.khalti.com/api/v2/epayment/initiate/'
+KHALTI_LOOKUP_URL = 'https://dev.khalti.com/api/v2/epayment/lookup/'
+
 # For production, use:
 # ESEWA_PAYMENT_URL = 'https://epay.esewa.com.np/api/epay/main/v2/form'
 # ESEWA_VERIFY_URL = 'https://epay.esewa.com.np/api/epay/transaction/status/'
@@ -249,6 +255,6 @@ ESEWA_VERIFY_URL = 'https://rc-epay.esewa.com.np/api/epay/transaction/status/'
 
 # Green Points Reward System Configuration
 GREEN_POINTS_EARN_RATE = 10  # 1 point per Rs 10 spent
-GREEN_POINTS_REDEEM_RATE = 10  # 10 points = Rs 1 discount
+GREEN_POINTS_REDEEM_RATE = 5  # 5 points = Rs 1 discount
 GREEN_POINTS_MIN_REDEEM = 50  # Minimum 50 points to redeem
 GREEN_POINTS_MAX_DISCOUNT_PERCENT = 50  # Maximum 50% discount from points

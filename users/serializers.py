@@ -75,10 +75,27 @@ class ProfileSerializer(serializers.ModelSerializer):
     phone = serializers.SerializerMethodField()
     address = serializers.SerializerMethodField()
     is_verified = serializers.SerializerMethodField()
+    profile_picture = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'first_name', 'last_name', 'email', 'role', 'shop_name', 'phone', 'address', 'is_verified']
+        fields = ['id', 'username', 'first_name', 'last_name', 'email', 'role', 'shop_name', 'phone', 'address', 'is_verified', 'is_staff', 'profile_picture']
+
+    def get_profile_picture(self, obj):
+        request = self.context.get('request')
+        try:
+            pic = obj.customer_user.profile_picture
+            if pic and request:
+                return request.build_absolute_uri(pic.url)
+        except Exception:
+            pass
+        try:
+            pic = obj.seller_user.profile_picture
+            if pic and request:
+                return request.build_absolute_uri(pic.url)
+        except Exception:
+            pass
+        return None
 
     def get_role(self, obj):
         # Try to get role from different profile models using try-except

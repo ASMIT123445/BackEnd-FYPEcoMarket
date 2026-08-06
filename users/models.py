@@ -3,6 +3,7 @@ from django.contrib.auth.models import User
 import uuid
 from django.utils import timezone
 from datetime import timedelta
+from django.core.validators import RegexValidator
 
 # pylint: disable=no-member
 
@@ -62,6 +63,7 @@ class CustomerProfile(models.Model):
     email = models.EmailField()
     address = models.TextField(blank=True, null=True, help_text="Full shipping address")
     green_points = models.IntegerField(default=0, help_text="Green Points balance for eco-friendly purchases")
+    profile_picture = models.ImageField(upload_to='profile_pictures/', blank=True, null=True)
 
 
 
@@ -98,6 +100,7 @@ class SellerProfile(models.Model):
     address = models.TextField(blank=True, null=True, help_text="Full shipping address")
     is_validated = models.BooleanField(default=False, help_text="Admin verification for seller authenticity and documents")
     validation_date = models.DateTimeField(null=True, blank=True)
+    profile_picture = models.ImageField(upload_to='profile_pictures/', blank=True, null=True)
    
 
     def save_from_user(self):
@@ -128,6 +131,10 @@ from django.contrib.auth.models import User
 # pylint: disable=no-member
 
 class SellerOnboarding(models.Model):
+    phone_regex = RegexValidator(
+    regex=r'^\+?1?\d{1,10}$',
+    message="Phone number must be up to 10 digits. Optionally start with '+' or '1'."
+)
     user = models.OneToOneField(User, on_delete=models.CASCADE)
 
     # Section 1
@@ -141,7 +148,12 @@ class SellerOnboarding(models.Model):
 
     # Section 3
     owner_full_name = models.CharField(max_length=255, blank=True, null=True)
-    phone_number = models.CharField(max_length=20, blank=True, null=True)
+    phone_number = models.CharField(
+    validators=[phone_regex],
+    default = "0000000",
+    max_length=20,
+    blank=False,
+)
     business_address = models.TextField(blank=True, null=True)
     province = models.CharField(max_length=100, blank=True, null=True)
     pickup_address = models.TextField(blank=True, null=True)

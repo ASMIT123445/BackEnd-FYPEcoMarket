@@ -31,11 +31,12 @@ class OrderItemSerializer(serializers.ModelSerializer):
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     customer_name = serializers.SerializerMethodField()
+    seller_subtotal = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
         fields = [
-            'id', 'customer_name', 'status', 'total_amount', 'items', 
+            'id', 'customer_name', 'status', 'total_amount', 'seller_subtotal', 'items', 
             'payment_method', 'payment_status', 'transaction_id', 'esewa_ref_id',
             'shipping_address', 'phone_number',
             'created_at', 'updated_at'
@@ -46,3 +47,15 @@ class OrderSerializer(serializers.ModelSerializer):
         if user.first_name and user.last_name:
             return f"{user.first_name} {user.last_name}"
         return user.username
+
+    def get_seller_subtotal(self, obj):
+        """
+        Returns the subtotal for only the items belonging to the requesting seller.
+        Falls back to total_amount if no seller context is available (e.g. admin views).
+        """
+        request = self.context.get('request')
+        if request and hasattr(request, 'user') and request.user.is_authenticated and not request.user.is_staff:
+            seller_items = obj.items.filter(product__seller=request.user)
+            return float(sum(item.price * item.quantity for item in seller_items))
+        # Admin or no context — return full order total
+        return float(obj.total_amount)

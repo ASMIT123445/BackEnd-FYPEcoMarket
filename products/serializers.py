@@ -18,14 +18,15 @@ class ProductSerializer(serializers.ModelSerializer):
     category_display = serializers.SerializerMethodField()
     eco_category_detail = EcoCategorySerializer(source='eco_category', read_only=True)
     product_category_detail = ProductCategorySerializer(source='product_category', read_only=True)
+    rating_count = serializers.SerializerMethodField()
     
     class Meta:
         model = Product
         fields = [
             'id', 'name', 'description', 'price', 'category', 'category_display', 
             'eco_category', 'eco_category_detail', 'product_category', 'product_category_detail',
-            'image', 'image_url', 'rating', 'seller', 'seller_name', 'is_validated', 
-            'created_at', 'updated_at', 'stock'
+            'image', 'image_url', 'rating', 'rating_count', 'seller', 'seller_name',
+            'is_validated', 'created_at', 'updated_at', 'stock'
         ]
         read_only_fields = ['seller', 'created_at', 'updated_at']
         
@@ -33,6 +34,9 @@ class ProductSerializer(serializers.ModelSerializer):
         if obj.seller:
             return obj.seller.username
         return None
+
+    def get_rating_count(self, obj):
+        return obj.ratings.count()
     
     def get_image_url(self, obj):
         if obj.image:

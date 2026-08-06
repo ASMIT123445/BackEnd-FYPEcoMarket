@@ -25,6 +25,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             pass
         
         token['role'] = role
+        token['is_staff'] = user.is_staff
         
         return token
 

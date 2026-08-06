@@ -4,10 +4,18 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
+from decimal import Decimal
 from .models import Cart, CartItem, Order, OrderItem, OrderStatusHistory
 from .serializers import CartSerializer, CartItemSerializer, OrderSerializer
 from products.models import Product
-from users.green_points_utils import calculate_points_earned, award_points
+from users.green_points_utils import calculate_points_earned, award_points, redeem_points
+from .email_utils import (
+    send_order_confirmed_email,
+    send_payment_success_email,
+    send_payment_failed_email,
+    send_order_status_update_email,
+    send_order_cancelled_email,
+)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -133,22 +141,41 @@ def create_order(request):
         cart = Cart.objects.get(user=request.user)
         if not cart.items.exists():
             return Response({'error': 'Cart is empty'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Calculate total
+
         total_amount = cart.total_price
-        
-        # Calculate green points to be earned
-        points_to_earn = calculate_points_earned(total_amount)
-        
-        # Create order
+        points_to_redeem = int(request.data.get('points_to_redeem', 0))
+        shipping_charge = Decimal(str(request.data.get('shipping_charge', 75)))
+        tax_amount = Decimal(str(request.data.get('tax_amount', 0)))
+        points_discount = 0
+
+        # Calculate total including shipping and tax
+        total_amount = Decimal(str(total_amount)) + shipping_charge + tax_amount
+
+        # Calculate green points to be earned (based on subtotal only)
+        points_to_earn = calculate_points_earned(float(cart.total_price))
+
+        # Create order first (needed for redeem_points)
         order = Order.objects.create(
             user=request.user,
             total_amount=total_amount,
             status='confirmed',
             points_earned=points_to_earn
         )
-        
-        # Create order items from cart items
+
+        # Redeem points if requested
+        if points_to_redeem > 0:
+            success, result = redeem_points(request.user, order, points_to_redeem)
+            if success:
+                points_discount = result
+                order.points_redeemed = points_to_redeem
+                order.points_discount = points_discount
+                order.total_amount = Decimal(str(total_amount)) - points_discount
+                order.save()
+            else:
+                order.delete()  # rollback order
+                return Response({'error': f'Points redemption failed: {result}'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Create order items
         for cart_item in cart.items.all():
             OrderItem.objects.create(
                 order=order,
@@ -156,21 +183,18 @@ def create_order(request):
                 quantity=cart_item.quantity,
                 price=cart_item.product.price
             )
-        
-        # Award green points to user
-        award_points(request.user, order, points_to_earn)
-        
-        # Clear cart after order creation
+
+        # Green points awarded only when payment is completed — not here
+
         cart.items.all().delete()
-        
-        # Return order details
+
         serializer = OrderSerializer(order)
         return Response({
             'message': 'Order created successfully',
             'order': serializer.data,
             'points_earned': points_to_earn
         }, status=status.HTTP_201_CREATED)
-        
+
     except Cart.DoesNotExist:
         return Response({'error': 'Cart not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
@@ -204,13 +228,17 @@ def initiate_esewa_payment(request):
         # Get shipping details from request
         shipping_address = request.data.get('shipping_address', '')
         phone_number = request.data.get('phone_number', '')
-        
+        points_to_redeem = int(request.data.get('points_to_redeem', 0))
+
         # Calculate total
         total_amount = float(cart.total_price)
-        
-        # Calculate green points to be earned
-        points_to_earn = calculate_points_earned(total_amount)
-        
+        shipping_charge = float(request.data.get('shipping_charge', 75))
+        tax_amount = float(request.data.get('tax_amount', 0))
+        total_amount = total_amount + shipping_charge + tax_amount
+
+        # Calculate green points to be earned (based on subtotal)
+        points_to_earn = calculate_points_earned(float(cart.total_price))
+
         # Create order with pending payment status
         order = Order.objects.create(
             user=request.user,
@@ -222,6 +250,19 @@ def initiate_esewa_payment(request):
             phone_number=phone_number,
             points_earned=points_to_earn
         )
+
+        # Redeem points if requested
+        if points_to_redeem > 0:
+            success, result = redeem_points(request.user, order, points_to_redeem)
+            if success:
+                order.points_redeemed = points_to_redeem
+                order.points_discount = result
+                order.total_amount = Decimal(str(total_amount)) - result
+                total_amount = float(order.total_amount)
+                order.save()
+            else:
+                order.delete()
+                return Response({'error': f'Points redemption failed: {result}'}, status=status.HTTP_400_BAD_REQUEST)
         
         # Create order items from cart items
         for cart_item in cart.items.all():
@@ -396,11 +437,17 @@ def esewa_payment_verify(request):
                 order.status = 'confirmed'
                 order.esewa_ref_id = transaction_code
                 order.save()
-                
+
                 # Award green points
                 if order.points_earned > 0:
                     award_points(order.user, order, order.points_earned)
-                
+
+                # Send payment success email
+                try:
+                    send_payment_success_email(order)
+                except Exception as e:
+                    print(f"Payment success email failed: {e}")
+
                 # Redirect to success page
                 frontend_url = f"http://localhost:5173/order-confirmation?order_id={order.id}&status=success"
                 from django.http import HttpResponseRedirect
@@ -410,30 +457,33 @@ def esewa_payment_verify(request):
                 order.payment_status = 'failed'
                 order.status = 'cancelled'
                 order.save()
-                
+
                 # Restore stock
                 for item in order.items.all():
                     product = item.product
                     product.stock += item.quantity
                     product.save()
-                
+
+                # Send payment failed email
+                try:
+                    send_payment_failed_email(order)
+                except Exception as e:
+                    print(f"Payment failed email error: {e}")
+
                 frontend_url = f"http://localhost:5173/order-confirmation?order_id={order.id}&status=failed"
                 from django.http import HttpResponseRedirect
                 return HttpResponseRedirect(frontend_url)
                 
         except requests.RequestException as e:
             print(f"eSewa verification error: {e}")
-            # For testing, mark as success if verification fails
-            order.payment_status = 'completed'
-            order.status = 'confirmed'
-            order.esewa_ref_id = transaction_code or 'TEST-' + str(order.id)
+            # Verification API unreachable — cancel the order to be safe
+            order.payment_status = 'failed'
+            order.status = 'cancelled'
             order.save()
-            
-            # Award green points
-            if order.points_earned > 0:
-                award_points(order.user, order, order.points_earned)
-            
-            frontend_url = f"http://localhost:5173/order-confirmation?order_id={order.id}&status=success"
+            for item in order.items.all():
+                item.product.stock += item.quantity
+                item.product.save()
+            frontend_url = f"http://localhost:5173/order-confirmation?order_id={order.id}&status=failed"
             from django.http import HttpResponseRedirect
             return HttpResponseRedirect(frontend_url)
         
@@ -497,13 +547,17 @@ def create_cod_order(request):
         # Get shipping details
         shipping_address = request.data.get('shipping_address', '')
         phone_number = request.data.get('phone_number', '')
-        
+        points_to_redeem = int(request.data.get('points_to_redeem', 0))
+
         # Calculate total
         total_amount = cart.total_price
-        
-        # Calculate green points to be earned
-        points_to_earn = calculate_points_earned(total_amount)
-        
+        shipping_charge = Decimal(str(request.data.get('shipping_charge', 75)))
+        tax_amount = Decimal(str(request.data.get('tax_amount', 0)))
+        total_amount = Decimal(str(total_amount)) + shipping_charge + tax_amount
+
+        # Calculate green points to be earned (based on subtotal)
+        points_to_earn = calculate_points_earned(float(cart.total_price))
+
         # Create order
         order = Order.objects.create(
             user=request.user,
@@ -515,6 +569,18 @@ def create_cod_order(request):
             phone_number=phone_number,
             points_earned=points_to_earn
         )
+
+        # Redeem points if requested
+        if points_to_redeem > 0:
+            success, result = redeem_points(request.user, order, points_to_redeem)
+            if success:
+                order.points_redeemed = points_to_redeem
+                order.points_discount = result
+                order.total_amount = Decimal(str(total_amount)) - result
+                order.save()
+            else:
+                order.delete()
+                return Response({'error': f'Points redemption failed: {result}'}, status=status.HTTP_400_BAD_REQUEST)
         
         # Create order items from cart items
         for cart_item in cart.items.all():
@@ -530,15 +596,20 @@ def create_cod_order(request):
             product.stock -= cart_item.quantity
             product.save()
         
-        # Award green points to user
-        award_points(request.user, order, points_to_earn)
+        # Green points awarded only when payment is completed — not at COD order creation
         
         # Clear cart after order creation
         cart.items.all().delete()
         
         # Log initial status history
         OrderStatusHistory.objects.create(order=order, status='confirmed', note='Order placed via Cash on Delivery')
-        
+
+        # Send order confirmation email
+        try:
+            send_order_confirmed_email(order)
+        except Exception as e:
+            print(f"Order confirmation email failed: {e}")
+
         # Return order details
         serializer = OrderSerializer(order)
         return Response({
@@ -603,48 +674,9 @@ def update_order_status(request, order_id):
 
     OrderStatusHistory.objects.create(order=order, status=new_status, note=note)
 
-    # Send email notification to customer
+    # Send HTML email notification to customer
     try:
-        from django.core.mail import send_mail
-        from django.conf import settings as django_settings
-
-        status_labels = {
-            'pending': 'Pending',
-            'confirmed': 'Confirmed',
-            'processing': 'Processing',
-            'shipped': 'Shipped',
-            'delivered': 'Delivered',
-            'cancelled': 'Cancelled',
-        }
-        status_label = status_labels.get(new_status, new_status.capitalize())
-
-        customer_email = order.user.email
-        customer_name = order.user.first_name or order.user.username
-
-        subject = f"Ecomarket - Order #{order.id} Status Update: {status_label}"
-
-        message = f"""Hi {customer_name},
-
-Your order #{order.id} has been updated.
-
-New Status: {status_label}
-Order Total: Rs {order.total_amount}
-{f'Note: {note}' if note else ''}
-
-You can track your order at: http://localhost:5173/order-tracking/{order.id}
-
-Thank you for shopping with Ecomarket!
-
-— The Ecomarket Team
-"""
-
-        send_mail(
-            subject=subject,
-            message=message,
-            from_email=django_settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[customer_email],
-            fail_silently=True,
-        )
+        send_order_status_update_email(order, new_status, note)
     except Exception as e:
         print(f"Email notification failed: {e}")
 
@@ -677,7 +709,201 @@ def cancel_order(request, order_id):
 
     OrderStatusHistory.objects.create(order=order, status='cancelled', note='Cancelled by customer')
 
+    # Send HTML cancellation email
+    try:
+        send_order_cancelled_email(order)
+    except Exception as e:
+        print(f"Cancellation email failed: {e}")
+
     return Response({'message': 'Order cancelled successfully', 'order_id': order.id})
+
+
+# Khalti Payment Gateway Configuration (Sandbox)
+KHALTI_SECRET_KEY = getattr(settings, 'KHALTI_SECRET_KEY', 'live_secret_key_68791341fdd94846a146f0457ff7b455')  # Test secret key
+KHALTI_INITIATE_URL = 'https://dev.khalti.com/api/v2/epayment/initiate/'
+KHALTI_LOOKUP_URL = 'https://dev.khalti.com/api/v2/epayment/lookup/'
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def initiate_khalti_payment(request):
+    """
+    Initiate Khalti payment.
+    Creates an order and calls Khalti initiate API, returns payment_url.
+    """
+    try:
+        cart = Cart.objects.get(user=request.user)
+        if not cart.items.exists():
+            return Response({'error': 'Cart is empty'}, status=status.HTTP_400_BAD_REQUEST)
+
+        shipping_address = request.data.get('shipping_address', '')
+        phone_number = request.data.get('phone_number', '')
+        points_to_redeem = int(request.data.get('points_to_redeem', 0))
+
+        total_amount = float(cart.total_price)
+        shipping_charge = float(request.data.get('shipping_charge', 75))
+        tax_amount = float(request.data.get('tax_amount', 0))
+        total_amount = total_amount + shipping_charge + tax_amount
+
+        points_to_earn = calculate_points_earned(float(cart.total_price))
+
+        order = Order.objects.create(
+            user=request.user,
+            total_amount=total_amount,
+            status='pending',
+            payment_method='khalti',
+            payment_status='pending',
+            shipping_address=shipping_address,
+            phone_number=phone_number,
+            points_earned=points_to_earn
+        )
+
+        if points_to_redeem > 0:
+            success, result = redeem_points(request.user, order, points_to_redeem)
+            if success:
+                order.points_redeemed = points_to_redeem
+                order.points_discount = result
+                order.total_amount = Decimal(str(total_amount)) - result
+                total_amount = float(order.total_amount)
+                order.save()
+            else:
+                order.delete()
+                return Response({'error': f'Points redemption failed: {result}'}, status=status.HTTP_400_BAD_REQUEST)
+
+        for cart_item in cart.items.all():
+            OrderItem.objects.create(
+                order=order,
+                product=cart_item.product,
+                quantity=cart_item.quantity,
+                price=cart_item.product.price
+            )
+            product = cart_item.product
+            product.stock -= cart_item.quantity
+            product.save()
+
+        # Amount in paisa (1 Rs = 100 paisa)
+        amount_paisa = int(total_amount * 100)
+
+        return_url = f'{request.scheme}://{request.get_host()}/api/orders/khalti/verify/?order_id={order.id}'
+        website_url = 'http://localhost:5173'
+
+        khalti_payload = {
+            'return_url': return_url,
+            'website_url': website_url,
+            'amount': amount_paisa,
+            'purchase_order_id': f'ORDER-{order.id}',
+            'purchase_order_name': 'Ecomarket Order',
+            'customer_info': {
+                'name': f'{request.user.first_name} {request.user.last_name}'.strip() or request.user.username,
+                'email': request.user.email,
+                'phone': phone_number or '9800000000',
+            },
+        }
+
+        headers = {
+            'Authorization': f'Key {KHALTI_SECRET_KEY}',
+            'Content-Type': 'application/json',
+        }
+
+        khalti_response = requests.post(KHALTI_INITIATE_URL, json=khalti_payload, headers=headers, timeout=15)
+        khalti_data = khalti_response.json()
+
+        if khalti_response.status_code != 200 or 'payment_url' not in khalti_data:
+            order.delete()
+            return Response({'error': 'Failed to initiate Khalti payment', 'details': khalti_data}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Store pidx for later lookup
+        order.transaction_id = khalti_data['pidx']
+        order.save()
+
+        cart.items.all().delete()
+
+        return Response({
+            'message': 'Khalti payment initiated',
+            'order_id': order.id,
+            'payment_url': khalti_data['payment_url'],
+            'pidx': khalti_data['pidx'],
+        }, status=status.HTTP_201_CREATED)
+
+    except Cart.DoesNotExist:
+        return Response({'error': 'Cart not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+def khalti_payment_verify(request):
+    """
+    Khalti redirects here after payment.
+    Verifies via lookup API and redirects to frontend.
+    """
+    from django.http import HttpResponseRedirect
+
+    pidx = request.GET.get('pidx')
+    order_id = request.GET.get('order_id')
+    callback_status = request.GET.get('status', '')
+
+    try:
+        order = Order.objects.get(id=order_id)
+    except Order.DoesNotExist:
+        return HttpResponseRedirect(f'http://localhost:5173/order-confirmation?order_id={order_id}&status=failed')
+
+    # User cancelled
+    if callback_status == 'User canceled':
+        order.payment_status = 'failed'
+        order.status = 'cancelled'
+        order.save()
+        for item in order.items.all():
+            item.product.stock += item.quantity
+            item.product.save()
+        return HttpResponseRedirect(f'http://localhost:5173/order-confirmation?order_id={order.id}&status=failed')
+
+    # Lookup verification
+    try:
+        headers = {
+            'Authorization': f'Key {KHALTI_SECRET_KEY}',
+            'Content-Type': 'application/json',
+        }
+        lookup_response = requests.post(KHALTI_LOOKUP_URL, json={'pidx': pidx}, headers=headers, timeout=15)
+        lookup_data = lookup_response.json()
+
+        if lookup_data.get('status') == 'Completed':
+            order.payment_status = 'completed'
+            order.status = 'confirmed'
+            order.save()
+            if order.points_earned > 0:
+                award_points(order.user, order, order.points_earned)
+            OrderStatusHistory.objects.create(order=order, status='confirmed', note='Payment completed via Khalti')
+            # Send payment success email
+            try:
+                send_payment_success_email(order)
+            except Exception as e:
+                print(f"Khalti payment success email failed: {e}")
+            return HttpResponseRedirect(f'http://localhost:5173/order-confirmation?order_id={order.id}&status=success')
+        else:
+            order.payment_status = 'failed'
+            order.status = 'cancelled'
+            order.save()
+            for item in order.items.all():
+                item.product.stock += item.quantity
+                item.product.save()
+            # Send payment failed email
+            try:
+                send_payment_failed_email(order)
+            except Exception as e:
+                print(f"Khalti payment failed email error: {e}")
+            return HttpResponseRedirect(f'http://localhost:5173/order-confirmation?order_id={order.id}&status=failed')
+
+    except Exception as e:
+        print(f'Khalti lookup error: {e}')
+        # Lookup failed — cancel the order to be safe
+        order.payment_status = 'failed'
+        order.status = 'cancelled'
+        order.save()
+        for item in order.items.all():
+            item.product.stock += item.quantity
+            item.product.save()
+        return HttpResponseRedirect(f'http://localhost:5173/order-confirmation?order_id={order.id}&status=failed')
 
 
 @api_view(['GET'])
@@ -718,8 +944,44 @@ def update_payment_status(request, order_id):
     order.payment_status = new_payment_status
     order.save()
 
+    # Award green points only when payment is marked completed
+    if new_payment_status == 'completed':
+        award_points(order.user, order, order.points_earned)
+
     return Response({
         'message': f'Payment status updated to {new_payment_status}',
         'order_id': order.id,
         'payment_status': new_payment_status
     })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def cancel_pending_gateway_order(request):
+    """
+    Called by the frontend when the user navigates back from eSewa/Khalti
+    without completing payment. Cancels any pending gateway orders for this user
+    and restores stock.
+    """
+    cancelled = []
+    pending_orders = Order.objects.filter(
+        user=request.user,
+        payment_method__in=['esewa', 'khalti'],
+        payment_status='pending',
+        status='pending'
+    )
+    for order in pending_orders:
+        order.payment_status = 'failed'
+        order.status = 'cancelled'
+        order.save()
+        for item in order.items.all():
+            item.product.stock += item.quantity
+            item.product.save()
+        OrderStatusHistory.objects.create(
+            order=order,
+            status='cancelled',
+            note='Payment abandoned — user returned without completing gateway payment'
+        )
+        cancelled.append(order.id)
+
+    return Response({'cancelled_orders': cancelled}, status=status.HTTP_200_OK)

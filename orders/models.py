@@ -54,6 +54,7 @@ class Order(models.Model):
 
     PAYMENT_METHOD_CHOICES = [
         ('esewa', 'eSewa'),
+        ('khalti', 'Khalti'),
         ('cod', 'Cash on Delivery'),
     ]
 
