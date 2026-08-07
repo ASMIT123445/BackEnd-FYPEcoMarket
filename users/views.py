@@ -13,6 +13,7 @@ from django.core.mail import send_mail
 from django.conf import settings
 
 
+dvdf
 
 class RegisterSellerView(APIView):
     def post(self, request):
