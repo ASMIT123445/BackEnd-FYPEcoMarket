@@ -461,10 +461,24 @@ class ProductRatingView(APIView):
             )
     
     def post(self, request, product_id):
-        """Submit or update a rating for a product"""
+        """Submit or update a rating for a product (only allowed after a delivered order)"""
         try:
             product = Product.objects.get(pk=product_id)
-            
+
+            # Verify the user has purchased and received this product
+            from orders.models import Order
+            has_delivered_order = Order.objects.filter(
+                user=request.user,
+                status='delivered',
+                items__product=product
+            ).exists()
+
+            if not has_delivered_order:
+                return Response(
+                    {"error": "You can only review products you have purchased and received."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
             # Check if user already rated this product
             existing_rating = ProductRating.objects.filter(
                 product=product, 
@@ -519,6 +533,20 @@ class UserProductRatingView(APIView):
                 {"rating": None}, 
                 status=status.HTTP_200_OK
             )
+
+
+class CanReviewProductView(APIView):
+    """Check whether the current user is eligible to review a product (purchased + delivered)"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, product_id):
+        from orders.models import Order
+        can_review = Order.objects.filter(
+            user=request.user,
+            status='delivered',
+            items__product_id=product_id
+        ).exists()
+        return Response({"can_review": can_review})
 
 
 class SearchSuggestionsView(APIView):

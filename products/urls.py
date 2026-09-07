@@ -3,7 +3,7 @@ from .views import (
     ProductListCreateView, ProductDetailView, TestAuthView, CategoryListView, 
     SellerProductsView, EcoCategoryManagementView, EcoCategoryDetailView,
     ProductCategoryListView, ProductCategoryManagementView, ProductCategoryDetailView,
-    ProductRatingView, UserProductRatingView, SearchSuggestionsView
+    ProductRatingView, UserProductRatingView, CanReviewProductView, SearchSuggestionsView
 )
 
 urlpatterns = [
@@ -18,6 +18,7 @@ urlpatterns = [
     path('product-categories/<int:pk>/', ProductCategoryDetailView.as_view(), name='product-category-detail'),
     path('<int:product_id>/ratings/', ProductRatingView.as_view(), name='product-ratings'),
     path('<int:product_id>/my-rating/', UserProductRatingView.as_view(), name='user-product-rating'),
+    path('<int:product_id>/can-review/', CanReviewProductView.as_view(), name='can-review-product'),
     path('seller/my-products/', SellerProductsView.as_view(), name='seller-products'),
     path('test-auth/', TestAuthView.as_view(), name='test-auth'),
 ]
