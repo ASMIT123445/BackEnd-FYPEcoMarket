@@ -221,9 +221,9 @@ def initiate_esewa_payment(request):
     """
     try:
         # Get cart
-        cart = Cart.objects.get(user=request.user)
+        cart, _ = Cart.objects.get_or_create(user=request.user)
         if not cart.items.exists():
-            return Response({'error': 'Cart is empty'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'Cart is empty. Please add items to your cart before placing an order.'}, status=status.HTTP_400_BAD_REQUEST)
         
         # Get shipping details from request
         shipping_address = request.data.get('shipping_address', '')
@@ -540,9 +540,9 @@ def create_cod_order(request):
     Create Cash on Delivery order
     """
     try:
-        cart = Cart.objects.get(user=request.user)
+        cart, _ = Cart.objects.get_or_create(user=request.user)
         if not cart.items.exists():
-            return Response({'error': 'Cart is empty'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'Cart is empty. Please add items to your cart before placing an order.'}, status=status.HTTP_400_BAD_REQUEST)
         
         # Get shipping details
         shipping_address = request.data.get('shipping_address', '')
@@ -732,9 +732,9 @@ def initiate_khalti_payment(request):
     Creates an order and calls Khalti initiate API, returns payment_url.
     """
     try:
-        cart = Cart.objects.get(user=request.user)
+        cart, _ = Cart.objects.get_or_create(user=request.user)
         if not cart.items.exists():
-            return Response({'error': 'Cart is empty'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'Cart is empty. Please add items to your cart before placing an order.'}, status=status.HTTP_400_BAD_REQUEST)
 
         shipping_address = request.data.get('shipping_address', '')
         phone_number = request.data.get('phone_number', '')
